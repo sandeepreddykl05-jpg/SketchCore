@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / ${{ matrix.compiler }} / ${{ matrix.build_type }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Debug builds on Linux run with AddressSanitizer + UBSan.
+          - { os: ubuntu-latest, compiler: gcc,   build_type: Debug,   asan: ON }
+          - { os: ubuntu-latest, compiler: clang, build_type: Debug,   asan: ON }
+          - { os: ubuntu-latest, compiler: gcc,   build_type: Release, asan: OFF }
+          - { os: macos-latest,  compiler: clang, build_type: Release, asan: OFF }
+          - { os: windows-latest, compiler: msvc, build_type: Release, asan: OFF }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select compiler (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            echo "CC=clang"   >> "$GITHUB_ENV"
+            echo "CXX=clang++" >> "$GITHUB_ENV"
+          else
+            echo "CC=gcc"     >> "$GITHUB_ENV"
+            echo "CXX=g++"    >> "$GITHUB_ENV"
+          fi
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DSKETCHCORE_ENABLE_ASAN=${{ matrix.asan }}
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.build_type }} --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure
